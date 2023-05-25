@@ -1,3 +1,6 @@
+# Author: Juergen Mang <juergen.mang@axians.de>
+# Date: 2023-05-25
+#
 # Configuration for DNS logging iRules
 # Save it as an iRule with name "dns-logging-config" and do NOT attach it to any vs
 # The defined variables are set at the time the iRule is saved

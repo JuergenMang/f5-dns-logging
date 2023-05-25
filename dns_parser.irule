@@ -1,3 +1,6 @@
+# Author: Juergen Mang <juergen.mang@axians.de>
+# Date: 2023-05-25
+#
 # DNS Request and response parsing
 # Save it as an iRule with name "dns_parser" and do NOT attach it to any vs
 # The defined procs are called by the "dns-logging-*" iRules

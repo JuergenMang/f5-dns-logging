@@ -1,3 +1,6 @@
+# Author: Juergen Mang <juergen.mang@axians.de>
+# Date: 2023-05-25
+#
 # DNS Request and response logging
 # Uses the procs from the dns_parser iRule
 # Disable local logging for production use!
