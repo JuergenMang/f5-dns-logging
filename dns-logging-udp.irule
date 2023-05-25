@@ -1,0 +1,31 @@
+# DNS Request and response logging
+# Uses the procs from the dns_parser iRule
+# Disable local logging for production use!
+
+# Request logging
+when CLIENT_ACCEPTED priority 500 {
+    if { [catch {
+        set req_log [call dns_parser::ReadQuestionPacket [UDP::payload]]
+    }] } {
+        set req_log "Could not parse DNS question: [subst \$::errorInfo]"
+    }
+    set hsl [HSL::open -publisher $static::dns_log]
+    HSL::send $hsl "[IP::client_addr] -> [virtual] $req_log"
+    #log local0. "[IP::client_addr] -> [virtual] $req_log"
+    unset -nocomplain -- req_log
+}
+
+# Response logging
+when SERVER_DATA priority 500 {
+    if { [catch {
+        set resp_log [call dns_parser::ReadAnswerPacket [UDP::payload]]
+    }] } {
+        set resp_log ""
+        lappend resp_log "Could not parse DNS answer: [subst \$::errorInfo]"
+    }
+    foreach line $resp_log {
+        HSL::send $hsl "[IP::server_addr] -> [virtual] -> [IP::client_addr] $line"
+        #log local0. "[IP::server_addr] -> [virtual] -> [IP::client_addr] $line"
+    }
+    unset -nocomplain -- resp_log line
+}

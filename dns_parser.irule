@@ -1,0 +1,440 @@
+# DNS Request and response parsing
+# Save it as an iRule with name "dns_parser" and do NOT attach it to any vs
+# The defined procs are called by the "dns-logging-*" iRules
+#
+# Reference: https://github.com/tcltk/tcllib/blob/master/modules/dns/dns.tcl
+
+when RULE_INIT priority 500 {
+    # List of DNS types for pretty printing
+    # https://en.wikipedia.org/wiki/List_of_DNS_record_types
+    array set static::dns_types {
+          1 "A"
+          2 "NS"
+          5 "CNAME"
+          6 "SOA"
+         12 "PTR"
+         15 "MX"
+         16 "TXT"
+         28 "AAAA"
+         33 "SRV"
+         35 "NAPTR"
+         41 "OPT"
+         46 "RRSIG"
+         48 "DNSKEY"
+         52 "TLSA"
+         65 "HTTPS"
+        256 "URI"
+        257 "CAAA"
+    }
+
+    # List of DNS classes for pretty printing
+    array set static::dns_classes {
+        1 "IN"
+        2 "CS"
+        3 "CH"
+        4 "HS"
+    }
+
+    # List of DNS errorcodes for pretty printing
+    array set static::dns_errorcodes {
+        0 "ok"
+        1 "format error"
+        2 "server failure"
+        3 "name error"
+        4 "not implemented"
+        5 "refused"
+    }
+
+    # List of DNS opcodes for pretty printing
+    set static::dns_opcodes {
+        "QUERY"
+        "IQUERY"
+        "STATUS"
+    }
+}
+
+# Reads the dns query packets
+proc ReadQuestionPacket {data} {
+    # DNS packet structure
+    # Header - Question(s)
+    #
+    # Header
+    # Same as in response, but only mid hdr and nQD are used in questions
+    binary scan $data SSS mid hdr nQD
+    set mid [expr {$mid & 0xffff}]
+
+    # Read question(s)
+    # Starts always at offset 12
+    set ndx 12
+    set question [call dns_parser::ReadQuestion $nQD $data ndx]
+    return "Query ($mid): $question"
+}
+
+# Reads the dns replay packets
+proc ReadAnswerPacket {data} {
+    # DNS packet structure
+    # Header - Question(s) - Answer(s) - Authority(s) - Additional section(s)
+    #
+    # Header
+    # mid: 16 bit, message id
+    # hdr: 16 bit
+    #      fResponse: 1 bit, specifies if this is a query (0) or response (1)
+    #      fOpcode: 4 bit, kind of query
+    #      fAuthorative: 1 bit, authorative nameserver
+    #      fTruncated: 1 bit, truncated message
+    #      fRecursion_desired: 1 bit, recursive query
+    #      reserved: 4 bit
+    #      fErrorcode: 4 bit, response code
+    # nQD: 16 bit, number of queries
+    # nAN: 16 bit, number of answers
+    # nNS: 16 bit, number of name server resource records
+    # nAR: 16 bit, number of additional records
+    binary scan $data SSSSSS mid hdr nQD nAN nNS nAR
+
+    set mid [expr {$mid & 0xffff}]
+
+    set fResponse           [expr {($hdr & 0x8000) >> 15}]
+    set fOpcode             [expr {($hdr & 0x7800) >> 11}]
+    set fAuthoritative      [expr {($hdr & 0x0400) >> 10}]
+    set fTruncated          [expr {($hdr & 0x0200) >> 9}]
+    set fRecursion_desired  [expr {($hdr & 0x0100) >> 8}]
+    set fRecursion_allowed  [expr {($hdr & 0x0080) >> 7}]
+    set fErrorcode          [expr {($hdr & 0x000F)}]
+
+    set flags ""
+    if {$fResponse} {
+        # Response
+        set flags "QR"
+    } else {
+        # Question
+        set flags "Q"
+    }
+    lappend flags [lindex $static::dns_opcodes $fOpcode]
+    if { $fAuthoritative } {
+        # Authorative answer
+        lappend flags "AA"
+    }
+    if { $fTruncated } {
+        # Truncated message
+        lappend flags "TC"
+    }
+    if { $fRecursion_desired} {
+        # Recursive query
+        lappend flags "RD"
+    }
+    if { $fRecursion_allowed } {
+        # Recursion allowed
+        lappend flags "RA"
+    }
+    if { [catch { set rc $static::dns_errorcodes($fErrorcode) } ] } {
+        # Response code
+        set rc $fErrorcode
+    }
+
+    set result {}
+
+    # Read question(s)
+    # Starts always at offset 12
+    set ndx 12
+    lappend result "Query ($mid): [call dns_parser::ReadQuestion $nQD $data ndx], flags: $flags, query: $nQD, answer: $nAN, authority: $nNS, additional: $nAR, status $rc"
+    # Read answer(s)
+    if { $nAN > 0 } {
+        lappend result "Answer ($mid): [call dns_parser::ReadAnswer $nAN $data ndx]"
+    }
+    # Read authority(s)
+    if { $nNS > 0 } {
+        lappend result "Authority ($mid): [call dns_parser::ReadAnswer $nNS $data ndx]"
+    }
+    # Read additional section(s)
+    if { $nAR > 0 } {
+        lappend result "Additional ($mid): [call dns_parser::ReadAnswer $nAR $data ndx]"
+    }
+    return $result
+}
+
+# Read the question section from a DNS message. This always starts at index
+# 12 of a message but may be of variable length.
+# There can be more than one question.
+#
+# Format
+# name: variable length name
+# qtype: 16 bit, type of query
+# qclass: 16 bit, class of query
+proc ReadQuestion {nitems data indexvar} {
+    variable types
+    variable classes
+    upvar $indexvar index
+    set result {}
+
+    for {set cn 0} {$cn < $nitems} {incr cn} {
+        set r {}
+        lappend r name [call dns_parser::ReadName data $index offset]
+        incr index $offset
+
+        # Read off QTYPE and QCLASS for this query.
+        set ndx $index
+        incr index 3
+        binary scan [string range $data $ndx $index] SS qtype qclass
+        set qtype [expr {$qtype & 0xFFFF}]
+        catch {
+            set qtype $static::dns_types($qtype)
+        }
+        set qclass [expr {$qclass & 0xFFFF}]
+        catch {
+            set qclass $static::dns_classes($qclass)
+        }
+        incr index
+        lappend r type $qtype class $qclass
+        lappend result $r
+    }
+    return $result
+}
+
+# Read an answer section from a DNS message.
+# There can be more than one answer.
+#
+# Format
+# name: variable length name
+# type: 16 bit, type of data
+# class: 16 bit, class of query
+# ttl: 32 bit, ttl
+# rdlength: 16 bit, length of data
+proc ReadAnswer {nitems data indexvar {raw 0}} {
+    variable types
+    variable classes
+    upvar $indexvar index
+    set result {}
+
+    for {set cn 0} {$cn < $nitems} {incr cn} {
+        set r {}
+        lappend r name [call dns_parser::ReadName data $index offset]
+        incr index $offset
+
+        # Read off TYPE, CLASS, TTL and RDLENGTH
+        binary scan [string range $data $index end] SSIS type class ttl rdlength
+
+        set type [expr {$type & 0xFFFF}]
+        catch {
+            set type $static::dns_types($type)
+        }
+
+        set class [expr {$class & 0xFFFF}]
+        catch {
+            set class $static::dns_classes($class)
+        }
+
+        set ttl [expr {$ttl & 0xFFFFFFFF}]
+        set rdlength [expr {$rdlength & 0xFFFF}]
+        incr index 10
+        set rdata [string range $data $index [expr {$index + $rdlength - 1}]]
+
+        switch -- $type {
+            A {
+                # IPv4 address
+                set rdata [IP::addr parse -ipv4 $rdata]
+            }
+            AAAA {
+                # IPv6 address
+                set rdata [IP::addr parse -ipv6 $rdata]
+            }
+            NS -
+            CNAME -
+            PTR {
+                # DNS name
+                set rdata [call dns_parser::ReadName data $index off]
+            }
+            MX {
+                # Mailserver record
+                # Format
+                # preference: mailserver preference
+                # exchange: name of mailserver
+                binary scan $rdata S preference
+                set exchange [call dns_parser::ReadName data [expr {$index + 2}] off]
+                set rdata [list $preference $exchange]
+            }
+            SRV {
+                # SRV record
+                # https://en.wikipedia.org/wiki/SRV_record
+                # Format
+                # priority: server priority
+                # weight: server weight
+                # port: Server port
+                # target: variable length name
+                set x $index
+                set rdata [list priority [call dns_parser::ReadUShort data $x off]]
+                incr x $off
+                lappend rdata weight [call dns_parser::ReadUShort data $x off]
+                incr x $off
+                lappend rdata port [call dns_parser::ReadUShort data $x off]
+                incr x $off
+                lappend rdata target [call dns_parser::ReadName data $x off]
+            }
+            NAPTR {
+                # Name Authority Pointer
+                # https://en.wikipedia.org/wiki/NAPTR_record
+                set x $index
+                set rdata [list order [call dns_parser::ReadUShort data $x off]]
+                incr x $off
+                lappend rdata preference [call dns_parser::ReadUShort data $x off]
+                incr x $off
+                lappend rdata flags [call dns_parser::ReadString data $x off]
+                incr x $off
+                lappend rdata service [call dns_parser::ReadString data $x off]
+                incr x $off
+                lappend rdata regex [call dns_parser::ReadString data $x off]
+                incr x $off
+                set domain {}
+                while {$x < $index + $rdlength} {
+                    lappend domain [call dns_parser::ReadString data $x off]
+                    incr x $off
+                }
+                lappend rdata replacement [join $domain .]
+            }
+            TXT {
+                # TXT record
+                set x $index
+                set rdata ""
+                while {$x < $index + $rdlength} {
+                    append rdata [call dns_parser::ReadString data $x off]
+                    incr x $off
+                }
+            }
+            SOA {
+                # Start of authority record
+                # https://en.wikipedia.org/wiki/SOA_record
+                # Format
+                # MNAME: master name
+                # RNAME: email address of the admin
+                # SERIAL: serial number
+                # REFRESH: refressh interval
+                # RETRY: retry interval
+                # EXPIRE: expire time
+                # MINIMUM: minimum ttl
+                set x $index
+                set rdata [list MNAME [call dns_parser::ReadName data $x off]]
+                incr x $off
+                lappend rdata RNAME [call dns_parser::ReadName data $x off]
+                incr x $off
+                lappend rdata SERIAL [call dns_parser::ReadULong data $x off]
+                incr x $off
+                lappend rdata REFRESH [call dns_parser::ReadLong data $x off]
+                incr x $off
+                lappend rdata RETRY [call dns_parser::ReadLong data $x off]
+                incr x $off
+                lappend rdata EXPIRE [call dns_parser::ReadLong data $x off]
+                incr x $off
+                lappend rdata MINIMUM [call dns_parser::ReadULong data $x off]
+                incr x $off
+            }
+        }
+
+        incr index $rdlength
+        lappend r type $type class $class ttl $ttl rdata $rdata
+        lappend result $r
+    }
+    return $result
+}
+
+# Read a 32bit integer from a DNS packet. These are compatible with
+# the ReadName proc.
+proc ReadLong {datavar index usedvar} {
+    upvar $datavar data
+    upvar $usedvar used
+    set r {}
+    set used 0
+    if {[binary scan $data @${index}I r]} {
+        set used 4
+    }
+    return $r
+}
+
+# Read a 32bit unsigned integer from a DNS packet. These are compatible with
+# the ReadName proc. Takes measures to ensure the unsignedness of the value obtained.
+proc ReadULong {datavar index usedvar} {
+    upvar $datavar data
+    upvar $usedvar used
+    set r {}
+    set used 0
+    if {[binary scan $data @${index}cccc b1 b2 b3 b4]} {
+        set used 4
+        # This gets us an unsigned value.
+        set r [expr {($b4 & 0xFF) + (($b3 & 0xFF) << 8)
+                     + (($b2 & 0xFF) << 16) + ($b1 << 24)}]
+    }
+    return $r
+}
+
+# Read a 16bit integer from a DNS packet. These are compatible with
+# the ReadName proc.
+proc ReadUShort {datavar index usedvar} {
+    upvar $datavar data
+    upvar $usedvar used
+    set r {}
+    set used 0
+    if {[binary scan [string range $data $index end] cc b1 b2]} {
+        set used 2
+        # This gets us an unsigned value.
+        set r [expr {(($b2 & 0xff) + (($b1 & 0xff) << 8)) & 0xffff}]
+    }
+    return $r
+}
+
+# Read off the NAME or QNAME element. This reads off each label in turn,
+# dereferencing pointer labels until we have finished. The length of data
+# used is passed back using the usedvar variable.
+#
+# Format:
+# www.axians.de is represented by [3]www[6]axians[2]de[0]
+proc ReadName {datavar index usedvar} {
+    upvar $datavar data
+    upvar $usedvar used
+    set startindex $index
+
+    set r {}
+    set len 1
+    set max [string length $data]
+
+    while {$len != 0 && $index < $max} {
+        # Read the label length (and preread the pointer offset)
+        binary scan [string range $data $index end] cc len lenb
+        set len [expr {$len & 0xFF}]
+        incr index
+
+        if {$len != 0} {
+            if {[expr {$len & 0xc0}]} {
+                binary scan [binary format cc [expr {$len & 0x3f}] [expr {$lenb & 0xff}]] S offset
+                incr index
+                lappend r [call dns_parser::ReadName data $offset junk]
+                set len 0
+            } else {
+                lappend r [string range $data $index [expr {$index + $len - 1}]]
+                incr index $len
+            }
+        }
+    }
+    set used [expr {$index - $startindex}]
+    return [join $r .]
+}
+
+# Read a string from a dns answer section
+# Format:
+# [4]text
+proc ReadString {datavar index usedvar} {
+    upvar $datavar data
+    upvar $usedvar used
+    set startindex $index
+
+    set r {}
+
+    if {[binary scan [string range $data $index end] c len] == 1} {
+        set len [expr {$len & 0xFF}]
+        incr index
+
+        if {$len != 0} {
+            set r [string range $data $index [expr {$index + $len - 1}]]
+            incr index $len
+        }
+    }
+    set used [expr {$index - $startindex}]
+    return $r
+}

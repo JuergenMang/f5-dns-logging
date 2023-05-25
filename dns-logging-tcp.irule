@@ -1,0 +1,95 @@
+# DNS Request and response logging
+# Uses the procs from the dns_parser iRule
+# Disable local logging for production use!
+
+# Request logging
+when CLIENT_ACCEPTED priority 500 {
+    TCP::collect
+    set hsl [HSL::open -publisher $static::dns_log]
+}
+
+when CLIENT_DATA priority 500 {
+    if { not [info exists req_size] } {
+        # Read size of the DNS request and chop off the tcp length prefix
+        if { [catch {
+            binary scan [TCP::payload] S req_size
+        }] } {
+            HSL::send $hsl "[IP::client_addr] -> [virtual] Could not read size of dns question: [subst \$::errorInfo]"
+            #log local0. "[IP::client_addr] -> [virtual] Could not read size of dns question: [subst \$::errorInfo]"
+            set req_size -1
+            TCP::release
+            return
+        }
+        set req_data [string range [TCP::payload] 2 end]
+    } else {
+        if { $req_size == -1 } {
+            # Ignore packets if we do not know the request size
+            #log local0. "[IP::client_addr] -> [virtual] Ignoring dns packet"
+            TCP::release
+            return
+        }
+        # Reassemble packets
+        append req_data [TCP::payload]
+    }
+    
+    if { [string length $req_data] >= $req_size } {
+        # Got full DNS request, parse it
+        if { [catch {
+            set req_log [call dns_parser::ReadQuestionPacket $req_data]
+        }] } {
+            set req_log "Could not parse DNS question: [subst \$::errorInfo]"
+        }
+        HSL::send $hsl "[IP::client_addr] -> [virtual] $req_log"
+        #log local0. "[IP::client_addr] -> [virtual] $req_log"
+        unset -nocomplain -- req_log req_data req_size
+    }
+   
+    TCP::release
+}
+
+# Response logging
+when SERVER_CONNECTED priority 500 {
+    TCP::collect
+}
+
+when SERVER_DATA priority 500 {
+    if { not [info exists resp_size] } {
+        # Read size of the DNS response and chop off the tcp length prefix
+        if { [catch {
+            binary scan [TCP::payload] S resp_size
+        }] } {
+            HSL::send $hsl "[IP::client_addr] -> [virtual] Could not read size of dns answer: [subst \$::errorInfo]"
+            #log local0. "[IP::client_addr] -> [virtual] Could not read size of dns answer: [subst \$::errorInfo]"
+            set req_size -1
+            TCP::release
+            return
+        }
+        set resp_data [string range [TCP::payload] 2 end]
+    } else {
+        if { $req_size == -1 } {
+            # Ignore packets if we do not know the response size
+            #log local0. "[IP::client_addr] -> [virtual] Ignoring dns packet"
+            TCP::release
+            return
+        }
+        # Reassemble packets
+        append resp_data [TCP::payload]
+    }
+
+    if { [string length $resp_data] >= $resp_size } {
+        # Got full DNS response, parse it
+        if { [catch {
+            set resp_log [call dns_parser::ReadAnswerPacket $resp_data]
+        }] } {
+            set resp_log ""
+            lappend resp_log "Could not parse DNS answer: [subst \$::errorInfo]"
+        }
+        foreach line $resp_log {
+            HSL::send $hsl "[IP::server_addr] -> [virtual] -> [IP::client_addr] $line"
+            #log local0. "[IP::server_addr] -> [virtual] -> [IP::client_addr] $line"
+        }
+        unset -nocomplain -- line resp_log resp_data resp_size
+    }
+
+    TCP::release
+}
