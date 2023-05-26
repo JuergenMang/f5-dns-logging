@@ -1,5 +1,5 @@
 # Author: Juergen Mang <juergen.mang@axians.de>
-# Date: 2023-05-25
+# Date: 2023-05-26
 #
 # DNS Request and response logging
 # Uses the procs from the dns_parser iRule
@@ -8,14 +8,20 @@
 # Request logging
 when CLIENT_ACCEPTED priority 500 {
     TCP::collect
-    set hsl [HSL::open -publisher $static::dns_log]
+    set hsl [HSL::open -publisher $static::dns_log_target]
+    set req_first_packet 1
 }
 
 when CLIENT_DATA priority 500 {
-    if { not [info exists req_size] } {
+    if { $req_first_packet == 1 } {
+        set req_first_packet 0
         # Read size of the DNS request and chop off the tcp length prefix
         if { [catch {
             binary scan [TCP::payload] S req_size
+            if { $req_size > $static::dns_log_max_tcp_request_size } {
+                # Do not process too big requests
+                set req_size -1
+            }
         }] } {
             HSL::send $hsl "[IP::client_addr] -> [virtual] Could not read size of dns question: [subst \$::errorInfo]"
             #log local0. "[IP::client_addr] -> [virtual] Could not read size of dns question: [subst \$::errorInfo]"
@@ -26,7 +32,7 @@ when CLIENT_DATA priority 500 {
         set req_data [string range [TCP::payload] 2 end]
     } else {
         if { $req_size == -1 } {
-            # Ignore packets if we do not know the request size
+            # Ignore packets if we do not know the request size or request is too big
             #log local0. "[IP::client_addr] -> [virtual] Ignoring dns packet"
             TCP::release
             return
@@ -44,7 +50,9 @@ when CLIENT_DATA priority 500 {
         }
         HSL::send $hsl "[IP::client_addr] -> [virtual] $req_log"
         #log local0. "[IP::client_addr] -> [virtual] $req_log"
-        unset -nocomplain -- req_log req_data req_size
+        unset -nocomplain -- req_log req_data
+        # Ignore orphaned packets
+        set req_size -1
     }
    
     TCP::release
@@ -53,24 +61,30 @@ when CLIENT_DATA priority 500 {
 # Response logging
 when SERVER_CONNECTED priority 500 {
     TCP::collect
+    set resp_first_packet 1
 }
 
 when SERVER_DATA priority 500 {
-    if { not [info exists resp_size] } {
+    if { $resp_first_packet == 1 } {
+        set resp_first_packet 0
         # Read size of the DNS response and chop off the tcp length prefix
         if { [catch {
             binary scan [TCP::payload] S resp_size
+            if { $resp_size > $static::dns_log_max_tcp_response_size } {
+                # Do not process too big responses
+                set resp_size -1    
+            }
         }] } {
             HSL::send $hsl "[IP::client_addr] -> [virtual] Could not read size of dns answer: [subst \$::errorInfo]"
             #log local0. "[IP::client_addr] -> [virtual] Could not read size of dns answer: [subst \$::errorInfo]"
-            set req_size -1
+            set resp_size -1
             TCP::release
             return
         }
         set resp_data [string range [TCP::payload] 2 end]
     } else {
-        if { $req_size == -1 } {
-            # Ignore packets if we do not know the response size
+        if { $resp_size == -1 } {
+            # Ignore packets if we do not know the response size or response is too big
             #log local0. "[IP::client_addr] -> [virtual] Ignoring dns packet"
             TCP::release
             return
@@ -91,7 +105,9 @@ when SERVER_DATA priority 500 {
             HSL::send $hsl "[IP::server_addr] -> [virtual] -> [IP::client_addr] $line"
             #log local0. "[IP::server_addr] -> [virtual] -> [IP::client_addr] $line"
         }
-        unset -nocomplain -- line resp_log resp_data resp_size
+        unset -nocomplain -- line resp_log resp_data
+        # Ignore orphaned packets
+        set req_size -1
     }
 
     TCP::release

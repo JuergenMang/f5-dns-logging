@@ -1,5 +1,5 @@
 # Author: Juergen Mang <juergen.mang@axians.de>
-# Date: 2023-05-25
+# Date: 2023-05-26
 #
 # Configuration for DNS logging iRules
 # Save it as an iRule with name "dns-logging-config" and do NOT attach it to any vs
@@ -7,5 +7,7 @@
 
 when RULE_INIT priority 500 {
     # HSL target - Log Publisher
-    set static::dns_log "/Common/remote-syslog"
+    set static::dns_log_target "/Common/remote-syslog"
+    set static::dns_log_max_tcp_request_size 1048576
+    set static::dns_log_max_tcp_response_size 5242880
 }

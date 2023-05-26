@@ -12,7 +12,7 @@ when CLIENT_ACCEPTED priority 500 {
     }] } {
         set req_log "Could not parse DNS question: [subst \$::errorInfo]"
     }
-    set hsl [HSL::open -publisher $static::dns_log]
+    set hsl [HSL::open -publisher $static::dns_log_target]
     HSL::send $hsl "[IP::client_addr] -> [virtual] $req_log"
     #log local0. "[IP::client_addr] -> [virtual] $req_log"
     unset -nocomplain -- req_log
