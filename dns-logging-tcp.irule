@@ -107,7 +107,7 @@ when SERVER_DATA priority 500 {
         }
         unset -nocomplain -- line resp_log resp_data
         # Ignore orphaned packets
-        set req_size -1
+        set resp_size -1
     }
 
     TCP::release
