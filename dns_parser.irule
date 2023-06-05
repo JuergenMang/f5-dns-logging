@@ -15,7 +15,7 @@
 
 when RULE_INIT priority 500 {
     # List of DNS types for pretty printing
-    # https://en.wikipedia.org/wiki/List_of_DNS_record_types
+    # https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
     array set static::dns_types {
           1 "A"
           2 "NS"
