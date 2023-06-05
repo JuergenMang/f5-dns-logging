@@ -1,5 +1,5 @@
 # Author: Juergen Mang <juergen.mang@axians.de>
-# Date: 2023-05-26
+# Date: 2023-06-05
 #
 # DNS Request and response logging
 # Uses the procs from the dns_parser iRule
@@ -19,7 +19,8 @@ when CLIENT_DATA priority 500 {
         if { [catch {
             binary scan [TCP::payload] S req_size
             if { $req_size > $static::dns_log_max_tcp_request_size } {
-                # Do not process too big requests
+                # Do not process too large requests
+                #log local0. "[IP::client_addr] -> [virtual] Request is too large: $req_size"
                 set req_size -1
             }
         }] } {
@@ -41,7 +42,7 @@ when CLIENT_DATA priority 500 {
         append req_data [TCP::payload]
     }
     
-    if { [string length $req_data] >= $req_size } {
+    if { $req_size > 0 and [string length $req_data] >= $req_size } {
         # Got full DNS request, parse it
         if { [catch {
             set req_log [call dns_parser::ReadQuestionPacket $req_data]
@@ -50,12 +51,14 @@ when CLIENT_DATA priority 500 {
         }
         HSL::send $hsl "[IP::client_addr] -> [virtual] $req_log"
         #log local0. "[IP::client_addr] -> [virtual] $req_log"
-        unset -nocomplain -- req_log req_data
-        # Ignore orphaned packets
-        set req_size -1
+        # Reset state
+        unset -nocomplain -- req_log req_data req_size
+        set req_first_packet 1
     }
-   
+    # Start collecting again
+    # There can be more than one dns query over a single tcp connection
     TCP::release
+    TCP::collect
 }
 
 # Response logging
@@ -71,7 +74,8 @@ when SERVER_DATA priority 500 {
         if { [catch {
             binary scan [TCP::payload] S resp_size
             if { $resp_size > $static::dns_log_max_tcp_response_size } {
-                # Do not process too big responses
+                # Do not process too large responses
+                #log local0. "[IP::client_addr] -> [virtual] Response is too large: $resp_size"
                 set resp_size -1    
             }
         }] } {
@@ -84,7 +88,7 @@ when SERVER_DATA priority 500 {
         set resp_data [string range [TCP::payload] 2 end]
     } else {
         if { $resp_size == -1 } {
-            # Ignore packets if we do not know the response size or response is too big
+            # Ignore packets if we do not know the response size or response is too large
             #log local0. "[IP::client_addr] -> [virtual] Ignoring dns packet"
             TCP::release
             return
@@ -93,7 +97,7 @@ when SERVER_DATA priority 500 {
         append resp_data [TCP::payload]
     }
 
-    if { [string length $resp_data] >= $resp_size } {
+    if { $resp_size > 0 and [string length $resp_data] >= $resp_size } {
         # Got full DNS response, parse it
         if { [catch {
             set resp_log [call dns_parser::ReadAnswerPacket $resp_data]
@@ -105,10 +109,12 @@ when SERVER_DATA priority 500 {
             HSL::send $hsl "[IP::server_addr] -> [virtual] -> [IP::client_addr] $line"
             #log local0. "[IP::server_addr] -> [virtual] -> [IP::client_addr] $line"
         }
-        unset -nocomplain -- line resp_log resp_data
-        # Ignore orphaned packets
-        set resp_size -1
+        # Reset state
+        unset -nocomplain -- line resp_log resp_data resp_size
+        set resp_first_packet 1
     }
-
+    # Start collecting again
+    # There can be more than one dns response over a single tcp connection
     TCP::release
+    TCP::collect
 }
