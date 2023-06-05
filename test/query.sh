@@ -19,29 +19,38 @@ fi
 DNS_SERVER="$1"
 DOMAINS=(google.com axians.de github.com)
 HOSTS=(www.google.com www.axians.de www.github.com)
-QTYPES=(A MX CNAME TXT SRV NS SOA)
+IPS=(142.250.186.78 2a00:1450:4001:809::200e)
+QTYPES=(A NS CNAME SOA MX TXT AAAA SRV NAPTR OPT RRSIG DNSKEY TLSA HTTPS URI CAAA)
 
-# simple udp queries
+# single queries over udp
 for DOMAIN in "${DOMAINS[@]}" "${HOSTS[@]}"
 do
     for QTYPE in "${QTYPES[@]}"
     do
-        host -t "$QTYPE" "$DOMAIN" "$DNS_SERVER"
+        dig @"${DNS_SERVER}" "$DOMAIN" "$QTYPE"
     done
 done
 
-# simple tcp queries
+# single queries over tcp
 for DOMAIN in "${DOMAINS[@]}" "${HOSTS[@]}"
 do
     for QTYPE in "${QTYPES[@]}"
     do
-        host -T -t "$QTYPE" "$DOMAIN" "$DNS_SERVER"
+        dig +tcp @"${DNS_SERVER}" "$DOMAIN" "$QTYPE"
     done
 done
 
-# ip queries
-host 142.250.186.78 "$DNS_SERVER"
-host 2a00:1450:4001:809::200e "$DNS_SERVER"
+# single PTR queries over udp
+for IP in "${IPS[@]}"
+do
+    host -U "$IP" "$DNS_SERVER"
+done
+
+# single PTR queries over tcp
+for IP in "${IPS[@]}"
+do
+    host -T "$IP" "$DNS_SERVER"
+done
 
 # multiple queries over one tcp connection
 for DOMAIN in "${DOMAINS[@]}"
