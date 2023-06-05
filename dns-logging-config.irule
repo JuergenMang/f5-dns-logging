@@ -4,6 +4,11 @@
 # Configuration for DNS logging iRules
 # Save it as an iRule with name "dns-logging-config" and do NOT attach it to any vs
 # The defined variables are set at the time the iRule is saved
+#
+# -------------------------------------------------------------------------
+# See the file "LICENSE.md" for information on usage and redistribution
+# of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+# -------------------------------------------------------------------------
 
 when RULE_INIT priority 500 {
     # HSL target - Log Publisher

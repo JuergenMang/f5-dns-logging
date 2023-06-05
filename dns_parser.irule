@@ -5,7 +5,13 @@
 # Save it as an iRule with name "dns_parser" and do NOT attach it to any vs
 # The defined procs are called by the "dns-logging-*" iRules
 #
-# Reference: https://github.com/tcltk/tcllib/blob/master/modules/dns/dns.tcl
+# This iRule is based on: https://github.com/tcltk/tcllib/blob/master/modules/dns/dns.tcl
+# dns.tcl - Copyright (C) 2002 Pat Thoyts <patthoyts@users.sourceforge.net>
+#
+# -------------------------------------------------------------------------
+# See the file "LICENSE.md" for information on usage and redistribution
+# of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+# -------------------------------------------------------------------------
 
 when RULE_INIT priority 500 {
     # List of DNS types for pretty printing

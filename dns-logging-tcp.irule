@@ -4,6 +4,11 @@
 # DNS Request and response logging
 # Uses the procs from the dns_parser iRule
 # Disable local logging for production use!
+#
+# -------------------------------------------------------------------------
+# See the file "LICENSE.md" for information on usage and redistribution
+# of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+# -------------------------------------------------------------------------
 
 # Request logging
 when CLIENT_ACCEPTED priority 500 {
