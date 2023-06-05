@@ -6,6 +6,13 @@ This iRules parses the dns protocol natively, there is no requirement for a DNS 
 
 This dns parser is based on the dns parser from the tcllib: https://github.com/tcltk/tcllib/blob/master/modules/dns/dns.tcl.
 
+**Supports:**
+
+- DNS over UDP
+- DNS over TCP
+- Multiple queries/answers in one TCP connection
+- DNS pipelining
+
 **Supported DNS records:**
 
 - A
