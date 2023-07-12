@@ -1,5 +1,5 @@
 # Author: Juergen Mang <juergen.mang@axians.de>
-# Date: 2023-05-25
+# Date: 2023-07-12
 #
 # DNS Request and response logging
 # Uses the procs from the dns_parser iRule
@@ -15,11 +15,11 @@ when CLIENT_ACCEPTED priority 500 {
     if { [catch {
         set req_log [call dns_parser::ReadQuestionPacket [UDP::payload]]
     }] } {
-        set req_log "Could not parse DNS question: [subst \$::errorInfo]"
+        set req_log "error=\"Could not parse DNS question: [subst \$::errorInfo]\""
     }
     set hsl [HSL::open -publisher $static::dns_log_target]
-    HSL::send $hsl "[IP::client_addr] -> [virtual] $req_log"
-    #log local0. "[IP::client_addr] -> [virtual] $req_log"
+    HSL::send $hsl "client_ip=\"[IP::client_addr]\" target_ip=\"0.0.0.0\" v_server=\"[virtual]\" $req_log"
+    #log local0. "client_ip=\"[IP::client_addr]\" target_ip=\"0.0.0.0\" v_server=\"[virtual]\" $req_log"
     unset -nocomplain -- req_log
 }
 
@@ -29,11 +29,11 @@ when SERVER_DATA priority 500 {
         set resp_log [call dns_parser::ReadAnswerPacket [UDP::payload]]
     }] } {
         set resp_log ""
-        lappend resp_log "Could not parse DNS answer: [subst \$::errorInfo]"
+        lappend resp_log "error=\"Could not parse DNS answer: [subst \$::errorInfo]\""
     }
     foreach line $resp_log {
-        HSL::send $hsl "[IP::server_addr] -> [virtual] -> [IP::client_addr] $line"
-        #log local0. "[IP::server_addr] -> [virtual] -> [IP::client_addr] $line"
+        HSL::send $hsl "client_ip=\"[IP::client_addr]\" target_ip=\"[IP::server_addr]\" v_server=\"[virtual]\" $line"
+        #log local0. "client_ip=\"[IP::client_addr]\" target_ip=\"[IP::server_addr]\" v_server=\"[virtual]\" $line"
     }
     unset -nocomplain -- resp_log line
 }

@@ -1,5 +1,5 @@
 # Author: Juergen Mang <juergen.mang@axians.de>
-# Date: 2023-05-25
+# Date: 2023-07-12
 #
 # DNS Request and response parsing
 # Save it as an iRule with name "dns_parser" and do NOT attach it to any vs
@@ -76,7 +76,7 @@ proc ReadQuestionPacket {data} {
     # Starts always at offset 12
     set ndx 12
     set question [call dns_parser::ReadQuestion $nQD $data ndx]
-    return "Query ($mid): $question"
+    return "msg_type=\"query\" request_id=\"$mid\" payload=\"$question\""
 }
 
 # Reads the dns replay packets
@@ -145,18 +145,18 @@ proc ReadAnswerPacket {data} {
     # Read question(s)
     # Starts always at offset 12
     set ndx 12
-    lappend result "Query ($mid): [call dns_parser::ReadQuestion $nQD $data ndx], flags: $flags, query: $nQD, answer: $nAN, authority: $nNS, additional: $nAR, status $rc"
+    lappend result "msg_type=\"query\" request_id=\"$mid\" payload=\"[call dns_parser::ReadQuestion $nQD $data ndx], flags: $flags, query: $nQD, answer: $nAN, authority: $nNS, additional: $nAR, status $rc\""
     # Read answer(s)
     if { $nAN > 0 } {
-        lappend result "Answer ($mid): [call dns_parser::ReadAnswer $nAN $data ndx]"
+        lappend result "msg_type=\"answer\" request_id=\"$mid\" payload=\"[call dns_parser::ReadAnswer $nAN $data ndx]\""
     }
     # Read authority(s)
     if { $nNS > 0 } {
-        lappend result "Authority ($mid): [call dns_parser::ReadAnswer $nNS $data ndx]"
+        lappend result "msg_type=\"authority\" request_id=\"$mid\" payload=\"[call dns_parser::ReadAnswer $nNS $data ndx]\""
     }
     # Read additional section(s)
     if { $nAR > 0 } {
-        lappend result "Additional ($mid): [call dns_parser::ReadAnswer $nAR $data ndx]"
+        lappend result "msg_type=\"additional\" request_id=\"$mid\" payload=\"[call dns_parser::ReadAnswer $nAR $data ndx]\""
     }
     return $result
 }

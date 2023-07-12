@@ -55,19 +55,29 @@ Multiple entries are supported for each section.
 
 ## Log Format
 
-- Request: `<Client IP> -> <VS> <Section> (<Id>): <Parsed payload>`
-- Response: `<Server IP> -> <VS> -> <Client IP> <Section (<Id>): <Parsed payload>`
+- Request: `client_ip="<Client IP>" target_ip="0.0.0.0" v_server="<VS>" msg_type="query" request_id="<Id>" payload="<Parsed payload>"`
+- Response: `client_ip="<Client IP>" target_ip="<Backend IP>" v_server="<VS>" msg_type="<Section>" request_id="<Id>" payload="<Parsed payload>"`
 
 ### Example
 
 ```
 # Request
-1.1.1.1 -> /Common/vs_dns_udp Query (32004): {name axians.de type MX class IN}
+client_ip="1.1.1.1" target_ip="0.0.0.0" v_server="/Common/vs_dns-udp" msg_type="query" request_id="2172" payload="{name google.com type CNAME class IN}"
 
 # Response
-2.2.2.2 -> /Common/vs_dns_udp -> 1.1.1.1 Query (32004): {name axians.de type MX class IN}, flags: QR QUERY RD RA, query: 1, answer: 1, authority: 0, additional: 3, status ok
-2.2.2.2 -> /Common/vs_dns_udp -> 1.1.1.1 Answer (32004): {name axians.de type MX class IN ttl 3600 rdata {10 axians-de.mail.protection.outlook.com}}
-2.2.2.2 -> /Common/vs_dns_udp -> 1.1.1.1 Additional (32004): {name axians-de.mail.protection.outlook.com type A class IN ttl 2 rdata 104.47.0.36} {name axians-de.mail.protection.outlook.com type A class IN ttl 2 rdata 104.47.2.36} {name {} type OPT class 4000 ttl 0 rdata {}}
+client_ip="1.1.1.1" target_ip="2.2.2.2" v_server="/Common/vs_dns-udp" msg_type="query" request_id="2172" payload="{name google.com type CNAME class IN}, flags: QR QUERY RD RA, query: 1, answer: 0, authority: 1, additional: 1, status ok"
+client_ip="1.1.1.1" target_ip="2.2.2.2" v_server="/Common/vs_dns-udp" msg_type="authority" request_id="2172" payload="{name google.com type SOA class IN ttl 23 rdata {MNAME ns1.google.com RNAME dns-admin.google.com SERIAL 547140803 REFRESH 900 RETRY 900 EXPIRE 1800 MINIMUM 60}}"
+client_ip="1.1.1.1" target_ip="2.2.2.2" v_server="/Common/vs_dns-udp" msg_type="additional" request_id="2172" payload="{name {} type OPT class 4000 ttl 0 rdata {}}"
+```
+
+```
+# Request
+client_ip="1.1.1.1" target_ip="0.0.0.0" v_server="/Common/vs_dns-udp" msg_type="query" request_id="64482" payload="{name google.com type A class IN}"
+
+# Response
+client_ip="1.1.1.1" target_ip="2.2.2.2" v_server="/Common/vs_dns-udp" msg_type="query" request_id="64482" payload="{name google.com type A class IN}, flags: QR QUERY RD RA, query: 1, answer: 1, authority: 0, additional: 1, status ok"
+client_ip="1.1.1.1" target_ip="2.2.2.2" v_server="/Common/vs_dns-udp" msg_type="answer" request_id="64482" payload="{name google.com type A class IN ttl 292 rdata 216.58.212.174}"
+client_ip="1.1.1.1" target_ip="2.2.2.2" v_server="/Common/vs_dns-udp" msg_type="additional" request_id="64482" payload="{name {} type OPT class 4000 ttl 0 rdata {}}"
 ```
 
 ***

@@ -1,5 +1,5 @@
 # Author: Juergen Mang <juergen.mang@axians.de>
-# Date: 2023-06-05
+# Date: 2023-07-12
 #
 # DNS Request and response logging
 # Uses the procs from the dns_parser iRule
@@ -19,18 +19,20 @@ when CLIENT_ACCEPTED priority 500 {
 
 when CLIENT_DATA priority 500 {
     if { $req_first_packet == 1 } {
+        set req_log_prefix "client_ip=\"[IP::client_addr]\" target_ip=\"0.0.0.0\" v_server=\"[virtual]\""
         set req_first_packet 0
         # Read size of the DNS request and chop off the tcp length prefix
         if { [catch {
             binary scan [TCP::payload] S req_size
             if { $req_size > $static::dns_log_max_tcp_request_size } {
                 # Do not process too large requests
-                #log local0. "[IP::client_addr] -> [virtual] Request is too large: $req_size"
+                #HSL::send $hsl "$req_log_prefix error=\"Request is too large: $req_size\""
+                #log local0. "$req_log_prefix error=\"Request is too large: $req_size\""
                 set req_size -1
             }
         }] } {
-            HSL::send $hsl "[IP::client_addr] -> [virtual] Could not read size of dns question: [subst \$::errorInfo]"
-            #log local0. "[IP::client_addr] -> [virtual] Could not read size of dns question: [subst \$::errorInfo]"
+            HSL::send $hsl "$req_log_prefix error=\"Could not read size of dns question: [subst \$::errorInfo]\""
+            #log local0. "$req_log_prefix error=\"Could not read size of dns question: [subst \$::errorInfo]\""
             set req_size -1
             TCP::release
             return
@@ -39,7 +41,7 @@ when CLIENT_DATA priority 500 {
     } else {
         if { $req_size == -1 } {
             # Ignore packets if we do not know the request size or request is too big
-            #log local0. "[IP::client_addr] -> [virtual] Ignoring dns packet"
+            #log local0. "$req_log_prefix error=\"Ignoring dns packet\""
             TCP::release
             return
         }
@@ -52,10 +54,10 @@ when CLIENT_DATA priority 500 {
         if { [catch {
             set req_log [call dns_parser::ReadQuestionPacket $req_data]
         }] } {
-            set req_log "Could not parse DNS question: [subst \$::errorInfo]"
+            set req_log "error=\"Could not parse DNS question: [subst \$::errorInfo]\""
         }
-        HSL::send $hsl "[IP::client_addr] -> [virtual] $req_log"
-        #log local0. "[IP::client_addr] -> [virtual] $req_log"
+        HSL::send $hsl "$req_log_prefix $req_log"
+        #log local0. "$req_log_prefix $req_log"
         # Reset state
         unset -nocomplain -- req_log req_data req_size
         set req_first_packet 1
@@ -75,17 +77,19 @@ when SERVER_CONNECTED priority 500 {
 when SERVER_DATA priority 500 {
     if { $resp_first_packet == 1 } {
         set resp_first_packet 0
+        set resp_log_prefix "client_ip=\"[IP::client_addr]\" target_ip=\"[IP::server_addr]\" v_server=\"[virtual]\""
         # Read size of the DNS response and chop off the tcp length prefix
         if { [catch {
             binary scan [TCP::payload] S resp_size
             if { $resp_size > $static::dns_log_max_tcp_response_size } {
                 # Do not process too large responses
-                #log local0. "[IP::client_addr] -> [virtual] Response is too large: $resp_size"
+                #HSL::send $hsl "$resp_log_prefix error=\"Response is too large: $resp_size\""
+                #log local0. "$resp_log_prefix error=\"Response is too large: $resp_size\""
                 set resp_size -1    
             }
         }] } {
-            HSL::send $hsl "[IP::client_addr] -> [virtual] Could not read size of dns answer: [subst \$::errorInfo]"
-            #log local0. "[IP::client_addr] -> [virtual] Could not read size of dns answer: [subst \$::errorInfo]"
+            HSL::send $hsl "$resp_log_prefix error=\"Could not read size of dns answer: [subst \$::errorInfo]\""
+            #log local0. "$resp_log_prefix error=\"Could not read size of dns answer: [subst \$::errorInfo]\""
             set resp_size -1
             TCP::release
             return
@@ -94,7 +98,7 @@ when SERVER_DATA priority 500 {
     } else {
         if { $resp_size == -1 } {
             # Ignore packets if we do not know the response size or response is too large
-            #log local0. "[IP::client_addr] -> [virtual] Ignoring dns packet"
+            #log local0. "$resp_log_prefix error=\"Ignoring dns packet\""
             TCP::release
             return
         }
@@ -108,11 +112,11 @@ when SERVER_DATA priority 500 {
             set resp_log [call dns_parser::ReadAnswerPacket $resp_data]
         }] } {
             set resp_log ""
-            lappend resp_log "Could not parse DNS answer: [subst \$::errorInfo]"
+            lappend resp_log "$resp_log_prefix error=\"Could not parse DNS answer: [subst \$::errorInfo]\""
         }
         foreach line $resp_log {
-            HSL::send $hsl "[IP::server_addr] -> [virtual] -> [IP::client_addr] $line"
-            #log local0. "[IP::server_addr] -> [virtual] -> [IP::client_addr] $line"
+            HSL::send $hsl "$resp_log_prefix $line"
+            #log local0. "$resp_log_prefix $line"
         }
         # Reset state
         unset -nocomplain -- line resp_log resp_data resp_size
